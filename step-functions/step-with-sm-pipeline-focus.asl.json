@@ -1,0 +1,106 @@
+{
+  "Comment": "Step Function workflow for ML model evaluation with SageMaker Pipeline integration",
+  "StartAt": "Validate Configuration Parameters",
+  "States": {
+    "Validate Configuration Parameters": {
+      "Type": "Pass",
+      "Next": "Prepare Data for LLM Evaluation"
+    },
+    "Prepare Data for LLM Evaluation": {
+      "Type": "Pass",
+      "Next": "Start Pipeline Execution"
+    },
+    "Start Pipeline Execution": {
+      "Type": "Task",
+      "Parameters": {
+        "ClientRequestToken.$": "$.clientRequestToken",
+        "PipelineName.$": "$.pipelineName",
+        "PipelineParameters": [
+          {
+            "Name": "AlwaysFail",
+            "Value.$": "$.alwaysFail"
+          },
+          {
+            "Name": "Config_File_A_URI",
+            "Value.$": "$.config_file_a"
+          },
+          {
+            "Name": "Config_File_B_URI",
+            "Value.$": "$.config_file_b"
+          },
+          {
+            "Name": "Config_File_C_URI",
+            "Value.$": "$.config_file_c"
+          }
+        ]
+      },
+      "Resource": "arn:aws:states:::aws-sdk:sagemaker:startPipelineExecution",
+      "Next": "Poll Pipeline Execution"
+    },
+    "Poll Pipeline Execution": {
+      "Type": "Task",
+      "Parameters": {
+        "PipelineExecutionArn.$": "$.PipelineExecutionArn"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:sagemaker:describePipelineExecution",
+      "Next": "CheckPipelineStatus",
+      "ResultPath": "$.pipelineStatus"
+    },
+    "CheckPipelineStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.pipelineStatus.PipelineExecutionStatus",
+          "StringEquals": "Succeeded",
+          "Next": "Run LLM Evaluation"
+        },
+        {
+          "Variable": "$.pipelineStatus.PipelineExecutionStatus",
+          "StringEquals": "Failed",
+          "Next": "PipelineFailed"
+        },
+        {
+          "Variable": "$.pipelineStatus.PipelineExecutionStatus",
+          "StringEquals": "Stopped",
+          "Next": "PipelineStopped"
+        },
+        {
+          "Or": [
+            {
+              "Variable": "$.pipelineStatus.PipelineExecutionStatus",
+              "StringEquals": "Executing"
+            },
+            {
+              "Variable": "$.pipelineStatus.PipelineExecutionStatus",
+              "StringEquals": "Stopping"
+            }
+          ],
+          "Next": "WaitBeforeCheckingStatus"
+        }
+      ],
+      "Default": "WaitBeforeCheckingStatus"
+    },
+    "Run LLM Evaluation": {
+      "Type": "Pass",
+      "Next": "Success"
+    },
+    "WaitBeforeCheckingStatus": {
+      "Type": "Wait",
+      "Seconds": 60,
+      "Next": "Poll Pipeline Execution"
+    },
+    "Success": {
+      "Type": "Succeed"
+    },
+    "PipelineFailed": {
+      "Type": "Fail",
+      "Cause": "SageMaker Pipeline execution failed",
+      "Error": "PipelineExecutionFailed"
+    },
+    "PipelineStopped": {
+      "Type": "Fail",
+      "Cause": "SageMaker Pipeline execution was stopped",
+      "Error": "PipelineExecutionStopped"
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "Comment": "Amazon Step Function Definition to validate and process workflow parameters",
+  "StartAt": "Validate Configuration Parameters",
+  "States": {
+    "Validate Configuration Parameters": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:us-west-2:396913714882:function:validate_workflow_parameters:$LATEST",
+        "Payload": {
+          "config_file_a.$": "$.config_file_a",
+          "config_file_b.$": "$.config_file_b",
+          "config_file_c.$": "$.config_file_c"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "CheckValidationStatus",
+      "ResultPath": "$.ValidationResult"
+    },
+    "CheckValidationStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "FailState",
+          "Variable": "$.ValidationResult.Payload.status",
+          "StringEquals": "fail"
+        }
+      ],
+      "Default": "PrepareEvaluation"
+    },
+    "FailState": {
+      "Type": "Fail",
+      "Error": "ParameterValidationFailed",
+      "Cause": "Workflow parameters validation failed."
+    },
+    "PrepareEvaluation": {
+      "Type": "Pass",
+      "ResultPath": "$.PreparedInput",
+      "InputPath": "$.ValidationResult",
+      "Next": "Run Evaluation"
+    },
+    "Run Evaluation": {
+      "Type": "Pass",
+      "Next": "LLM Evaluation Complete"
+    },
+    "LLM Evaluation Complete": {
+      "Type": "Succeed"
+    }
+  }
+}
